@@ -18,20 +18,24 @@ public class jumpMotor : MonoBehaviour {
 	public float Gravity = 20.0f;
 	public float MouseSensitivity = 2.5f;
 
+	private bool isJumping = false;
+
 	public Camera camera;
 	private float cameraRotX = 0.0f;
 
 	private CharacterController controller;
 
-	private bool wallRunKey = false;
-	private Vector3 wallMovement = Vector3.zero;
+	private bool canWallRun = true;
+	private bool wallRunning = false;
 
 	private Vector3 moveDirection = Vector3.zero;
 	private Vector3 lastDirection = Vector3.zero;
 
 	private CollisionFlags collisions;
 
-	private float wallRunTime = 2.0f;
+	private float wallRunMaxTime = 1.5f;
+	private float wallRunTime = 0.0f;
+	private RaycastHit wallHit;
 
 	// Use this for initialization
 	void Start () {
@@ -46,7 +50,6 @@ public class jumpMotor : MonoBehaviour {
 	}
 
 	void UpdateFunction() {
-		wallRunKey = Input.GetKey(KeyCode.LeftShift);
 		moveKeyDown = Input.GetKey(KeyCode.W);
 
 		if(moveKeyDown && moveDownTime <= RampUpTime) {
@@ -56,13 +59,7 @@ public class jumpMotor : MonoBehaviour {
 			}
 		}
 
-		bool wallRunning = false;
-		if (wallRunKey){
-			wallRunning = DoWallRunCheck();
-		}
-
-		if (!wallRunning)
-			transform.Rotate (0f, (Input.GetAxis("Mouse X") * MouseSensitivity) * TurnSpeed * Time.deltaTime, 0f);
+		transform.Rotate (0f, (Input.GetAxis("Mouse X") * MouseSensitivity) * TurnSpeed * Time.deltaTime, 0f);
 		cameraRotX -= Input.GetAxis("Mouse Y") * MouseSensitivity;
 
 		camera.transform.forward = transform.forward;
@@ -70,14 +67,11 @@ public class jumpMotor : MonoBehaviour {
 
 		if (controller.isGrounded && !wallRunning){
 			if (!moveKeyDown){
-				if (moveDownTime > 0){
-					//moveDownTime -= RunSpeedIncrease * Time.deltaTime;
-					moveDownTime = 0f;
-				}
-				else
-					moveDownTime = 0f;
-
+				moveDownTime = 0f;
 			}
+
+			canWallRun = true;
+			isJumping = false;
 
 			//moveDirection = Input.GetAxis("Vertical") * transform.TransformDirection(Vector3.forward);
 			moveDirection = new Vector3(Input.GetAxisRaw("Horizontal"), 0, Input.GetAxisRaw("Vertical"));
@@ -85,6 +79,8 @@ public class jumpMotor : MonoBehaviour {
 			moveDirection.Normalize();
 
 			moveDirection *= BaseSpeed + (RunSpeedIncrease * (moveDownTime / RampUpTime));
+
+			// slow to a stop
 			if ((moveDirection == Vector3.zero && lastDirection != Vector3.zero)) {
 				if (lastDirection.x != 0){
 					if (lastDirection.x > 0){
@@ -116,43 +112,79 @@ public class jumpMotor : MonoBehaviour {
 			}
 
 			if (Input.GetButton("Jump")){
+				isJumping = true;
 				moveDirection.y = JumpSpeed;
 			}
 		}
+		else if ((!controller.isGrounded && isJumping) || wallRunning) {
+			//if (canWallRun){
+			//	wallRunning = DoWallRunCheck();
+			//}
 
-		moveDirection.y -= Gravity * Time.deltaTime;
+			// If wallRunning
+			//if (wallRunning && canWallRun){
+				UpdateWallRun();
+			//}
+
+		}
+
+		if (!wallRunning)
+			moveDirection.y -= Gravity * Time.deltaTime;
+
 		collisions = controller.Move(moveDirection * Time.deltaTime);
 		lastDirection = moveDirection;
 		//Debug.Log("collisions: " + collisions);
 	}
 
-	bool DoWallRunCheck(){
+	void UpdateWallRun (){
+
 		Ray ray = new Ray(transform.position, transform.TransformDirection(Vector3.right));
-		Debug.DrawRay(transform.position, transform.TransformDirection(Vector3.right), Color.red, 2f, false);
-		RaycastHit hit;
+		
+		if (!controller.isGrounded && canWallRun && Physics.Raycast(ray.origin, ray.direction, out wallHit, 1f) && wallRunTime < wallRunMaxTime){
+			//if (wallRunTime < wallRunMaxTime) {
+			wallRunning = true;
+			float previousJumpHeight = moveDirection.y;
 
-		if (Physics.Raycast(ray.origin, ray.direction, out hit, 1f)){
-			Debug.DrawRay(hit.point, hit.normal, Color.green, 2f, false);
+			Vector3 crossProduct = Vector3.Cross(Vector3.up, wallHit.normal);
 
-			//Vector3 crossProduct = Vector3.Cross(moveDirection, hit.normal);
-			Vector3 crossProduct = Vector3.Cross(Vector3.up, hit.normal);
-			Debug.DrawRay(transform.position, crossProduct * BaseSpeed, Color.magenta, 2f, false);
+				Quaternion lookDirection = Quaternion.LookRotation(crossProduct);
 
-			Debug.Log(transform.rotation);
-			//transform.Rotate (0f, (180f - Vector3.Angle(crossProduct, moveDirection)) * TurnSpeed * Time.deltaTime, 0f);
-			//transform.Rotate(0f, (Vector3.Angle(crossProduct, transform.TransformDirection(Vector3.forward))) * TurnSpeed * Time.deltaTime, 0f);
+				transform.rotation = Quaternion.Slerp(transform.rotation, lookDirection, 3.5f * Time.deltaTime);
 
-			Quaternion lookDirection = Quaternion.LookRotation(crossProduct);
 
-			transform.rotation = Quaternion.Slerp(transform.rotation, lookDirection, 3.5f * Time.deltaTime);
 
 			moveDirection = crossProduct;
-			//moveDirection = transform.TransformDirection(moveDirection);
-			moveDirection.Normalize();
-			moveDirection *= BaseSpeed + (RunSpeedIncrease * (moveDownTime / RampUpTime));
+				moveDirection.Normalize();
+				moveDirection *= BaseSpeed + (RunSpeedIncrease * (moveDownTime / RampUpTime));
 
-			//moveDirection.y = JumpSpeed;
+				if (wallRunTime == 0.0f){
+					// increase vertical movement.
+					Debug.Log ("Wall run starting, increasing jump.");
+					moveDirection.y = JumpSpeed / 4;
+				}
+				else {
+					moveDirection.y = previousJumpHeight;
+					moveDirection.y -= (Gravity / 4) * Time.deltaTime;
+				}
 
+				wallRunTime += Time.deltaTime;
+				Debug.Log("Wall run time: " + wallRunTime);
+			//}
+			if (wallRunTime > wallRunMaxTime){
+				canWallRun = false;
+				Debug.Log ("Max wall run time hit.");
+			}
+		}
+		else {
+			wallRunning = false;
+			wallRunTime = 0.0f;
+		}
+	}
+
+	bool DoWallRunCheck(){
+		Ray ray = new Ray(transform.position, transform.TransformDirection(Vector3.right));
+
+		if (Physics.Raycast(ray.origin, ray.direction, out wallHit, 1f)){
 			return true;
 		}
 		else {
