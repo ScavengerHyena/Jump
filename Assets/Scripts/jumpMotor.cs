@@ -138,59 +138,80 @@ public class jumpMotor : MonoBehaviour {
 
 	void UpdateWallRun (){
 
-		Ray ray = new Ray(transform.position, transform.TransformDirection(Vector3.right));
-		
-		if (!controller.isGrounded && canWallRun && Physics.Raycast(ray.origin, ray.direction, out wallHit, 1f) && wallRunTime < wallRunMaxTime){
-			//if (wallRunTime < wallRunMaxTime) {
+		if (!controller.isGrounded && canWallRun && wallRunTime < wallRunMaxTime){
+
+			wallHit = DoWallRunCheck();
+			if (wallHit.collider == null){
+				//Debug.Log("MISS! leaving wall run.");
+				StopWallRun();
+				return;
+			}
+
 			wallRunning = true;
 			float previousJumpHeight = moveDirection.y;
 
 			Vector3 crossProduct = Vector3.Cross(Vector3.up, wallHit.normal);
 
-				Quaternion lookDirection = Quaternion.LookRotation(crossProduct);
+			Quaternion lookDirection = Quaternion.LookRotation(crossProduct);
 
-				transform.rotation = Quaternion.Slerp(transform.rotation, lookDirection, 3.5f * Time.deltaTime);
-
-
+			transform.rotation = Quaternion.Slerp(transform.rotation, lookDirection, 3.5f * Time.deltaTime);
 
 			moveDirection = crossProduct;
-				moveDirection.Normalize();
-				moveDirection *= BaseSpeed + (RunSpeedIncrease * (moveDownTime / RampUpTime));
+			moveDirection.Normalize();
+			moveDirection *= BaseSpeed + (RunSpeedIncrease * (moveDownTime / RampUpTime));
 
-				if (wallRunTime == 0.0f){
-					// increase vertical movement.
-					Debug.Log ("Wall run starting, increasing jump.");
-					moveDirection.y = JumpSpeed / 4;
-				}
-				else {
-					moveDirection.y = previousJumpHeight;
-					moveDirection.y -= (Gravity / 4) * Time.deltaTime;
-				}
+			if (wallRunTime == 0.0f){
+				// increase vertical movement.
+				Debug.Log ("Wall run starting, increasing jump.");
+				moveDirection.y = JumpSpeed / 4;
+			}
+			else {
+				moveDirection.y = previousJumpHeight;
+				moveDirection.y -= (Gravity / 4) * Time.deltaTime;
+			}
 
-				wallRunTime += Time.deltaTime;
-				Debug.Log("Wall run time: " + wallRunTime);
-			//}
+			wallRunTime += Time.deltaTime;
+			Debug.Log("Wall run time: " + wallRunTime);
+
 			if (wallRunTime > wallRunMaxTime){
 				canWallRun = false;
 				Debug.Log ("Max wall run time hit.");
 			}
 		}
 		else {
-			wallRunning = false;
-			wallRunTime = 0.0f;
+			StopWallRun();
 		}
 	}
 
-	bool DoWallRunCheck(){
-		Ray ray = new Ray(transform.position, transform.TransformDirection(Vector3.right));
+	void StopWallRun(){
+		wallRunning = false;
+		wallRunTime = 0.0f;
+	}
 
-		if (Physics.Raycast(ray.origin, ray.direction, out wallHit, 1f)){
-			return true;
+	RaycastHit DoWallRunCheck(){
+		Ray rayRight = new Ray(transform.position, transform.TransformDirection((Vector3.up + Vector3.right).normalized));
+		Ray rayLeft = new Ray(transform.position, transform.TransformDirection((Vector3.up + Vector3.left).normalized));
+
+		RaycastHit wallImpactRight;
+		RaycastHit wallImpactLeft;
+
+		bool rightImpact = Physics.Raycast(rayRight.origin, rayRight.direction, out wallImpactRight, 1f);
+		bool leftImpact = Physics.Raycast(rayLeft.origin, rayLeft.direction, out wallImpactLeft, 1f);
+
+		if (rightImpact && leftImpact) {
+			return wallImpactLeft.distance < wallImpactRight.distance ? wallImpactLeft : wallImpactRight;
+		}
+		else if (rightImpact) {
+			return wallImpactRight;
+		}
+		else if (leftImpact) {
+			wallImpactLeft.normal *= -1;
+			return wallImpactLeft;
 		}
 		else {
-			return false;
+			return wallImpactLeft;
 		}
-	}
+	} 
 
 	void OnControllerColliderHit(ControllerColliderHit hit){
 		if ((collisions & CollisionFlags.Sides) != 0) {
