@@ -1,6 +1,9 @@
 ﻿using UnityEngine;
 using System.Collections;
 
+// <author> Paige Hicks </author>
+// <summary>Class controlling movement for Jump game</summary>
+
 [RequireComponent(typeof(CharacterController))]
 
 public class jumpMotor : MonoBehaviour {
@@ -19,6 +22,7 @@ public class jumpMotor : MonoBehaviour {
 	public float MouseSensitivity = 2.5f;
 
 	private bool isJumping = false;
+	private bool jumpKeyDown = false;
 
 	public Camera camera;
 	private float cameraRotX = 0.0f;
@@ -70,6 +74,7 @@ public class jumpMotor : MonoBehaviour {
 				moveDownTime = 0f;
 			}
 
+			canClimb = true;
 			canWallRun = true;
 			isJumping = false;
 
@@ -117,15 +122,9 @@ public class jumpMotor : MonoBehaviour {
 			}
 		}
 		else if ((!controller.isGrounded && isJumping) || wallRunning) {
-			//if (canWallRun){
-			//	wallRunning = DoWallRunCheck();
-			//}
 
-			// If wallRunning
-			//if (wallRunning && canWallRun){
-				UpdateWallRun();
-			//}
-
+			UpdateWallRun();
+			WallClimb();
 		}
 
 		if (!wallRunning)
@@ -184,13 +183,16 @@ public class jumpMotor : MonoBehaviour {
 	}
 
 	void StopWallRun(){
+		if (wallRunning)
+			canWallRun = false;
+
 		wallRunning = false;
 		wallRunTime = 0.0f;
 	}
 
 	RaycastHit DoWallRunCheck(){
-		Ray rayRight = new Ray(transform.position, transform.TransformDirection((Vector3.up + Vector3.right).normalized));
-		Ray rayLeft = new Ray(transform.position, transform.TransformDirection((Vector3.up + Vector3.left).normalized));
+		Ray rayRight = new Ray(transform.position, transform.TransformDirection(Vector3.right));
+		Ray rayLeft = new Ray(transform.position, transform.TransformDirection(Vector3.left));
 
 		RaycastHit wallImpactRight;
 		RaycastHit wallImpactLeft;
@@ -199,9 +201,11 @@ public class jumpMotor : MonoBehaviour {
 		bool leftImpact = Physics.Raycast(rayLeft.origin, rayLeft.direction, out wallImpactLeft, 1f);
 
 		if (rightImpact && leftImpact) {
+			// Return closest impact as wall run
 			return wallImpactLeft.distance < wallImpactRight.distance ? wallImpactLeft : wallImpactRight;
 		}
 		else if (rightImpact) {
+			//Debug.Log("Angle of incidence: " + Vector3.Angle(rayRight.direction, wallImpactRight.normal));
 			return wallImpactRight;
 		}
 		else if (leftImpact) {
@@ -212,6 +216,45 @@ public class jumpMotor : MonoBehaviour {
 			return wallImpactLeft;
 		}
 	} 
+
+	// Temporarily here while experimenting with WallClimb.
+	float climbTime = 0.0f;
+	bool climbing = false;
+	bool canClimb = true;
+	void WallClimb() {
+		if (!moveKeyDown) {
+			climbTime = 0.0f;
+			if (climbing)
+				canClimb = false;
+			return;
+		}
+
+		Ray forwardRay = new Ray(transform.position, transform.TransformDirection(Vector3.forward).normalized);
+		forwardRay.direction /= 4;
+
+		RaycastHit hit;
+		if (canClimb && Physics.Raycast(forwardRay.origin, forwardRay.direction, out hit, 1f) && 
+		    climbTime < 0.5f && Vector3.Angle(forwardRay.direction, hit.normal) > 165){
+
+			climbTime += Time.deltaTime;
+
+			Quaternion lookDirection = Quaternion.LookRotation(hit.normal * -1);
+			
+			transform.rotation = Quaternion.Slerp(transform.rotation, lookDirection, 3.5f * Time.deltaTime);
+			camera.transform.Rotate(-85f * (climbTime / 0.5f), 0f, 0f);
+
+			moveDirection = transform.TransformDirection(Vector3.up);
+			moveDirection.Normalize();
+			moveDirection *= BaseSpeed;
+			climbing = true;
+		}
+		else {
+			if (climbing)
+				canClimb = false;
+			climbTime = 0f;
+			climbing = false;
+		}
+	}
 
 	void OnControllerColliderHit(ControllerColliderHit hit){
 		if ((collisions & CollisionFlags.Sides) != 0) {
