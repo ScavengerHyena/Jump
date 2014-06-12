@@ -170,7 +170,7 @@ public class jumpMotor : MonoBehaviour {
 			}
 
 			wallRunTime += Time.deltaTime;
-			Debug.Log("Wall run time: " + wallRunTime);
+			//Debug.Log("Wall run time: " + wallRunTime);
 
 			if (wallRunTime > wallRunMaxTime){
 				canWallRun = false;
@@ -190,6 +190,9 @@ public class jumpMotor : MonoBehaviour {
 		wallRunTime = 0.0f;
 	}
 
+	// Does a raycast to check if a wall was hit on either side, then checks if the angle between
+	// the forward vector and the wall's normal is appropriate for a wall run (ie: don't wall run 
+	// if facing away), then returns the closest, properly angled impact (if there are two somehow)
 	RaycastHit DoWallRunCheck(){
 		Ray rayRight = new Ray(transform.position, transform.TransformDirection(Vector3.right));
 		Ray rayLeft = new Ray(transform.position, transform.TransformDirection(Vector3.left));
@@ -200,20 +203,16 @@ public class jumpMotor : MonoBehaviour {
 		bool rightImpact = Physics.Raycast(rayRight.origin, rayRight.direction, out wallImpactRight, 1f);
 		bool leftImpact = Physics.Raycast(rayLeft.origin, rayLeft.direction, out wallImpactLeft, 1f);
 
-		if (rightImpact && leftImpact) {
-			// Return closest impact as wall run
-			return wallImpactLeft.distance < wallImpactRight.distance ? wallImpactLeft : wallImpactRight;
-		}
-		else if (rightImpact) {
-			//Debug.Log("Angle of incidence: " + Vector3.Angle(rayRight.direction, wallImpactRight.normal));
+		if (rightImpact && Vector3.Angle(transform.TransformDirection(Vector3.forward), wallImpactRight.normal) > 90) {
 			return wallImpactRight;
 		}
-		else if (leftImpact) {
+		else if (leftImpact && Vector3.Angle(transform.TransformDirection(Vector3.forward), wallImpactLeft.normal) > 90) {
 			wallImpactLeft.normal *= -1;
 			return wallImpactLeft;
 		}
 		else {
-			return wallImpactLeft;
+			// Just return something empty, which should be either one.
+			return new RaycastHit();
 		}
 	} 
 
