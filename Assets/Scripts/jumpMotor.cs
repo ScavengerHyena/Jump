@@ -8,6 +8,8 @@ using System.Collections;
 
 public class jumpMotor : MonoBehaviour {
 
+	private MotorState motorState = MotorState.Default;
+
 	public float BaseSpeed = 4.0f;
 	public float RunSpeedIncrease = 4.0f;
 
@@ -41,6 +43,9 @@ public class jumpMotor : MonoBehaviour {
 	private float wallRunTime = 0.0f;
 	private RaycastHit wallHit;
 
+	private bool grabbingLedge = false;
+	private bool canGrabLedge = true;
+
 	// Use this for initialization
 	void Start () {
 		camera = Camera.main;
@@ -50,24 +55,45 @@ public class jumpMotor : MonoBehaviour {
 	
 	// Update is called once per frame
 	void Update () {
-		UpdateFunction();
+		switch(motorState) {
+		case(MotorState.Ledgegrabbing):
+			//UpdateLedgeGrab();
+			break;
+		case(MotorState.MusclingUp):
+			//MuscleUp();
+			break;
+		case(MotorState.Wallrunning):
+			//UpdateWallRun();
+			break;
+		default:
+			//UpdateFunction();
+			break;
+		}
+
+		if (musclingUp)
+			MuscleUp();
+		else if (grabbingLedge)
+			UpdateLedgeGrab();
+		else
+			UpdateFunction();
 	}
 
 	void UpdateFunction() {
-		moveKeyDown = Input.GetKey(KeyCode.W);
-
-		if(moveKeyDown && moveDownTime <= RampUpTime) {
-			moveDownTime += Time.deltaTime;
-			if (moveDownTime > RampUpTime){
-				moveDownTime = RampUpTime;
-			}
-		}
 
 		transform.Rotate (0f, (Input.GetAxis("Mouse X") * MouseSensitivity) * TurnSpeed * Time.deltaTime, 0f);
 		cameraRotX -= Input.GetAxis("Mouse Y") * MouseSensitivity;
 
 		camera.transform.forward = transform.forward;
 		camera.transform.Rotate(cameraRotX, 0f, 0f);
+
+		moveKeyDown = Input.GetKey(KeyCode.W);
+		
+		if(moveKeyDown && moveDownTime <= RampUpTime) {
+			moveDownTime += Time.deltaTime;
+			if (moveDownTime > RampUpTime){
+				moveDownTime = RampUpTime;
+			}
+		}
 
 		if (controller.isGrounded && !wallRunning){
 			if (!moveKeyDown){
@@ -76,9 +102,9 @@ public class jumpMotor : MonoBehaviour {
 
 			canClimb = true;
 			canWallRun = true;
+			canGrabLedge = true;
 			isJumping = false;
 
-			//moveDirection = Input.GetAxis("Vertical") * transform.TransformDirection(Vector3.forward);
 			moveDirection = new Vector3(Input.GetAxisRaw("Horizontal"), 0, Input.GetAxisRaw("Vertical"));
 			moveDirection = transform.TransformDirection(moveDirection);
 			moveDirection.Normalize();
@@ -146,6 +172,7 @@ public class jumpMotor : MonoBehaviour {
 				return;
 			}
 
+			motorState = MotorState.Wallrunning;
 			wallRunning = true;
 			float previousJumpHeight = moveDirection.y;
 
@@ -176,6 +203,9 @@ public class jumpMotor : MonoBehaviour {
 				canWallRun = false;
 				Debug.Log ("Max wall run time hit.");
 			}
+
+			collisions = controller.Move(moveDirection * Time.deltaTime);
+			lastDirection = moveDirection;
 		}
 		else {
 			StopWallRun();
@@ -188,6 +218,10 @@ public class jumpMotor : MonoBehaviour {
 
 		wallRunning = false;
 		wallRunTime = 0.0f;
+		if (controller.isGrounded)
+			motorState = MotorState.Default;
+		else
+			motorState = MotorState.Falling;
 	}
 
 	// Does a raycast to check if a wall was hit on either side, then checks if the angle between
@@ -220,6 +254,7 @@ public class jumpMotor : MonoBehaviour {
 	float climbTime = 0.0f;
 	bool climbing = false;
 	bool canClimb = true;
+	// Does a raycast forward to check for a wall. If found, it looks up and climbs it.
 	void WallClimb() {
 		if (!moveKeyDown) {
 			climbTime = 0.0f;
@@ -229,7 +264,7 @@ public class jumpMotor : MonoBehaviour {
 		}
 
 		Ray forwardRay = new Ray(transform.position, transform.TransformDirection(Vector3.forward).normalized);
-		forwardRay.direction /= 4;
+		forwardRay.direction *= 0.1f;
 
 		RaycastHit hit;
 		if (canClimb && Physics.Raycast(forwardRay.origin, forwardRay.direction, out hit, 1f) && 
@@ -237,22 +272,89 @@ public class jumpMotor : MonoBehaviour {
 
 			climbTime += Time.deltaTime;
 
+			// Look up.
 			Quaternion lookDirection = Quaternion.LookRotation(hit.normal * -1);
-			
 			transform.rotation = Quaternion.Slerp(transform.rotation, lookDirection, 3.5f * Time.deltaTime);
-			camera.transform.Rotate(-85f * (climbTime / 0.5f), 0f, 0f);
+			//camera.transform.Rotate(-85f * (climbTime / 0.5f), 0f, 0f); //            ^ Magic number for tweaking look time
 
-			moveDirection = transform.TransformDirection(Vector3.up);
+			// Move up.
+			moveDirection += transform.TransformDirection(Vector3.up);
 			moveDirection.Normalize();
 			moveDirection *= BaseSpeed;
 			climbing = true;
+			motorState = MotorState.Climbing;
 		}
 		else {
-			if (climbing)
+			if (climbing || motorState == MotorState.Climbing)
 				canClimb = false;
 			climbTime = 0f;
 			climbing = false;
+			motorState = MotorState.Default;
 		}
+	}
+
+	void LedgeGrab(){
+		Debug.Log("Grab ledge");
+		if (canGrabLedge && isJumping && !wallRunning) {
+			grabbingLedge = true;
+			motorState = MotorState.Ledgegrabbing;
+			isJumping = false;
+		}
+	}
+
+	void UpdateLedgeGrab(){
+		float lookDegrees = (Input.GetAxis("Mouse X") * MouseSensitivity) * TurnSpeed * Time.deltaTime;
+		transform.Rotate (0f, lookDegrees, 0f);
+		//Debug.Log(Vector3.Angle(transform.TransformDirection(Vector3.forward), );
+		cameraRotX -= Input.GetAxis("Mouse Y") * MouseSensitivity;
+		
+		camera.transform.forward = transform.forward;
+		camera.transform.Rotate(cameraRotX, 0f, 0f);
+
+		if (moveDirection.y != 0){
+			moveDirection.y -= friction * Time.deltaTime;
+			moveDirection.y = Mathf.Clamp(moveDirection.y, 0, 100);
+			Debug.Log("Move direction: " + moveDirection.y);
+			collisions = controller.Move(moveDirection * Time.deltaTime);
+		}
+
+
+
+		if (Input.GetKey(KeyCode.LeftShift) ||  Input.GetKey(KeyCode.RightShift)){
+			grabbingLedge = false;
+			canGrabLedge = false;
+			climbing = false;
+			motorState = MotorState.Falling;
+			climbTime = 0f;
+		}
+
+		if (Input.GetButton("Jump")){
+			// Muscle up
+			musclingUp = true;
+			motorState = MotorState.MusclingUp;
+			climbing = false;
+			grabbingLedge = false;
+		}
+	}
+
+	bool musclingUp = false;
+	void MuscleUp(){
+
+		Ray ray = new Ray(transform.position, transform.TransformDirection(Vector3.forward));
+		ray.origin = ray.origin - new Vector3(0f, 1f, 0f);
+
+		if (Physics.Raycast(ray)){
+			//Debug.Log("TEDIOUS TRUeNESS!");
+			moveDirection = transform.TransformDirection(Vector3.up + Vector3.forward);
+			moveDirection.Normalize();
+			moveDirection *= BaseSpeed;
+
+			collisions = controller.Move(moveDirection * Time.deltaTime);
+
+		}
+		else 
+			musclingUp = false;
+
 	}
 
 	void OnControllerColliderHit(ControllerColliderHit hit){
@@ -269,4 +371,14 @@ public class jumpMotor : MonoBehaviour {
 		}*/
 	}
 
+}
+
+public enum MotorState {
+	Climbing,
+	Default,
+	Falling,
+	Jumping,
+	Ledgegrabbing,
+	MusclingUp,
+	Wallrunning
 }
