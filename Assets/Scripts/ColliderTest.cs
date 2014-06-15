@@ -19,7 +19,7 @@ public class ColliderTest : MonoBehaviour {
 	}
 
 	void OnTriggerEnter(Collider collider){
-		Debug.Log("Collision for ledge grab.");
+		//Debug.Log("Collision for ledge grab.");
 		collider.gameObject.SendMessage("LedgeGrab");
 	}
 }

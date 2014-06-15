@@ -8,7 +8,7 @@ using System.Collections;
 
 public class jumpMotor : MonoBehaviour {
 
-	private MotorState motorState = MotorState.Default;
+	private MotorStates motorState = MotorStates.Default;
 
 	public float BaseSpeed = 4.0f;
 	public float RunSpeedIncrease = 4.0f;
@@ -23,8 +23,7 @@ public class jumpMotor : MonoBehaviour {
 	public float Gravity = 20.0f;
 	public float MouseSensitivity = 2.5f;
 
-	private bool isJumping = false;
-	private bool jumpKeyDown = false;
+	//private bool jumpKeyDown = false;
 
 	public Camera camera;
 	private float cameraRotX = 0.0f;
@@ -32,19 +31,18 @@ public class jumpMotor : MonoBehaviour {
 	private CharacterController controller;
 
 	private bool canWallRun = true;
-	private bool wallRunning = false;
 
 	private Vector3 moveDirection = Vector3.zero;
 	private Vector3 lastDirection = Vector3.zero;
-
-	private CollisionFlags collisions;
 
 	private float wallRunMaxTime = 1.5f;
 	private float wallRunTime = 0.0f;
 	private RaycastHit wallHit;
 
-	private bool grabbingLedge = false;
 	private bool canGrabLedge = true;
+
+	float climbTime = 0.0f;
+	bool canClimb = true;
 
 	// Use this for initialization
 	void Start () {
@@ -55,39 +53,51 @@ public class jumpMotor : MonoBehaviour {
 	
 	// Update is called once per frame
 	void Update () {
+		// Get inputs?
+
 		switch(motorState) {
-		case(MotorState.Ledgegrabbing):
-			//UpdateLedgeGrab();
+
+		case(MotorStates.Climbing):
+			UpdateWallClimb();
 			break;
-		case(MotorState.MusclingUp):
-			//MuscleUp();
+		case(MotorStates.Jumping):
+			UpdateJump();
 			break;
-		case(MotorState.Wallrunning):
-			//UpdateWallRun();
+		case(MotorStates.Ledgegrabbing):
+			UpdateLedgeGrab();
+			break;
+		case(MotorStates.MusclingUp):
+			MuscleUp();
+			break;
+		case(MotorStates.Wallrunning):
+			UpdateWallRun();
 			break;
 		default:
-			//UpdateFunction();
+			UpdateDefault();
 			break;
 		}
 
-		if (musclingUp)
-			MuscleUp();
-		else if (grabbingLedge)
-			UpdateLedgeGrab();
-		else
-			UpdateFunction();
+		controller.Move(moveDirection * Time.deltaTime);
+		lastDirection = moveDirection;
 	}
 
-	void UpdateFunction() {
-
+	// Update camera and rotation based on mouse movent
+	void StandardCameraUpdate(){
 		transform.Rotate (0f, (Input.GetAxis("Mouse X") * MouseSensitivity) * TurnSpeed * Time.deltaTime, 0f);
 		cameraRotX -= Input.GetAxis("Mouse Y") * MouseSensitivity;
-
+		
 		camera.transform.forward = transform.forward;
 		camera.transform.Rotate(cameraRotX, 0f, 0f);
+	}
 
+	// Default movement update for when someone's just on the ground, running and such.
+	void UpdateDefault() {
+
+		// Update camera and general house keeping.
+		StandardCameraUpdate();
+
+		// Update momentum amount based on continuous run time.
 		moveKeyDown = Input.GetKey(KeyCode.W);
-		
 		if(moveKeyDown && moveDownTime <= RampUpTime) {
 			moveDownTime += Time.deltaTime;
 			if (moveDownTime > RampUpTime){
@@ -95,23 +105,26 @@ public class jumpMotor : MonoBehaviour {
 			}
 		}
 
-		if (controller.isGrounded && !wallRunning){
+		if (controller.isGrounded){
+
+			// Stop  momentum only if grounded. Can't slow down while airborne.
 			if (!moveKeyDown){
 				moveDownTime = 0f;
 			}
 
+			// Make sure some things get reset now that we've touched down and can recover.
 			canClimb = true;
 			canWallRun = true;
 			canGrabLedge = true;
-			isJumping = false;
 
+			// Update move direction with standard forward, back, and strafe controls.
 			moveDirection = new Vector3(Input.GetAxisRaw("Horizontal"), 0, Input.GetAxisRaw("Vertical"));
 			moveDirection = transform.TransformDirection(moveDirection);
 			moveDirection.Normalize();
-
+			
 			moveDirection *= BaseSpeed + (RunSpeedIncrease * (moveDownTime / RampUpTime));
 
-			// slow to a stop
+			// slow to a stop if no input
 			if ((moveDirection == Vector3.zero && lastDirection != Vector3.zero)) {
 				if (lastDirection.x != 0){
 					if (lastDirection.x > 0){
@@ -126,7 +139,7 @@ public class jumpMotor : MonoBehaviour {
 					}
 					moveDirection.x = lastDirection.x;
 				}
-
+				
 				if (lastDirection.z != 0){
 					if (lastDirection.z > 0){
 						lastDirection.z -= friction * Time.deltaTime;
@@ -142,38 +155,59 @@ public class jumpMotor : MonoBehaviour {
 				}
 			}
 
+			// Debating using a controller function or class to handle this, but for now...
 			if (Input.GetButton("Jump")){
-				isJumping = true;
+				motorState = MotorStates.Jumping;
 				moveDirection.y = JumpSpeed;
 			}
 		}
-		else if ((!controller.isGrounded && isJumping) || wallRunning) {
 
-			UpdateWallRun();
-			WallClimb();
+		// Keeping this here right now in case I don't feel the need for a falling function.
+		moveDirection.y -= Gravity * Time.deltaTime;
+	}
+
+	// UpdateJump updates the gravity, but more importantly it checks if the player is able to do specific,
+	// vertical movement related actions such as Wall Running, or Wall Climbing.
+	void UpdateJump() {
+		StandardCameraUpdate();
+
+		// Do a wall run check and change state if successful.
+		wallHit = DoWallRunCheck();
+		if (wallHit.collider != null) {
+			motorState = MotorStates.Wallrunning;
+			return;
 		}
 
-		if (!wallRunning)
-			moveDirection.y -= Gravity * Time.deltaTime;
+		// Do a wall climb check and I need to clean up these hits.
+		RaycastHit hit = DoWallClimbCheck(new Ray(transform.position, 
+		                                          transform.TransformDirection(Vector3.forward).normalized * 0.1f));
+		if (hit.collider != null) {
+			motorState = MotorStates.Climbing;
+			return;
+		}
 
-		collisions = controller.Move(moveDirection * Time.deltaTime);
-		lastDirection = moveDirection;
-		//Debug.Log("collisions: " + collisions);
+		// Now, if we've actually gotten this far...Sheesh.
+		// Update gravity, since there's no other movement direction to worry about
+		moveDirection.y -= Gravity * Time.deltaTime;
+
+		if (controller.isGrounded){
+			motorState = MotorStates.Default;
+		}
 	}
 
 	void UpdateWallRun (){
 
 		if (!controller.isGrounded && canWallRun && wallRunTime < wallRunMaxTime){
 
+			// Always update the wallhit, because we run past the edge of a wall. This keeps us 
+			// from floating off in to the ether.
 			wallHit = DoWallRunCheck();
 			if (wallHit.collider == null){
-				//Debug.Log("MISS! leaving wall run.");
 				StopWallRun();
 				return;
 			}
 
-			motorState = MotorState.Wallrunning;
-			wallRunning = true;
+			motorState = MotorStates.Wallrunning;
 			float previousJumpHeight = moveDirection.y;
 
 			Vector3 crossProduct = Vector3.Cross(Vector3.up, wallHit.normal);
@@ -188,7 +222,6 @@ public class jumpMotor : MonoBehaviour {
 
 			if (wallRunTime == 0.0f){
 				// increase vertical movement.
-				Debug.Log ("Wall run starting, increasing jump.");
 				moveDirection.y = JumpSpeed / 4;
 			}
 			else {
@@ -204,8 +237,6 @@ public class jumpMotor : MonoBehaviour {
 				Debug.Log ("Max wall run time hit.");
 			}
 
-			collisions = controller.Move(moveDirection * Time.deltaTime);
-			lastDirection = moveDirection;
 		}
 		else {
 			StopWallRun();
@@ -213,15 +244,11 @@ public class jumpMotor : MonoBehaviour {
 	}
 
 	void StopWallRun(){
-		if (wallRunning)
+		if (motorState == MotorStates.Wallrunning)
 			canWallRun = false;
 
-		wallRunning = false;
 		wallRunTime = 0.0f;
-		if (controller.isGrounded)
-			motorState = MotorState.Default;
-		else
-			motorState = MotorState.Falling;
+		motorState = MotorStates.Default;
 	}
 
 	// Does a raycast to check if a wall was hit on either side, then checks if the angle between
@@ -245,34 +272,31 @@ public class jumpMotor : MonoBehaviour {
 			return wallImpactLeft;
 		}
 		else {
-			// Just return something empty, which should be either one.
+			// Just return something empty, because nothing is good for a wall run
 			return new RaycastHit();
 		}
 	} 
 
-	// Temporarily here while experimenting with WallClimb.
-	float climbTime = 0.0f;
-	bool climbing = false;
-	bool canClimb = true;
 	// Does a raycast forward to check for a wall. If found, it looks up and climbs it.
-	void WallClimb() {
+	void UpdateWallClimb() {
 		if (!moveKeyDown) {
 			climbTime = 0.0f;
-			if (climbing)
+			if (motorState == MotorStates.Climbing)
 				canClimb = false;
+			motorState = MotorStates.Default;
 			return;
 		}
 
 		Ray forwardRay = new Ray(transform.position, transform.TransformDirection(Vector3.forward).normalized);
 		forwardRay.direction *= 0.1f;
 
-		RaycastHit hit;
-		if (canClimb && Physics.Raycast(forwardRay.origin, forwardRay.direction, out hit, 1f) && 
+		RaycastHit hit = DoWallClimbCheck(forwardRay);
+		if (canClimb && hit.collider != null && 
 		    climbTime < 0.5f && Vector3.Angle(forwardRay.direction, hit.normal) > 165){
 
 			climbTime += Time.deltaTime;
 
-			// Look up.
+			// Look up. Disabled for now.
 			Quaternion lookDirection = Quaternion.LookRotation(hit.normal * -1);
 			transform.rotation = Quaternion.Slerp(transform.rotation, lookDirection, 3.5f * Time.deltaTime);
 			//camera.transform.Rotate(-85f * (climbTime / 0.5f), 0f, 0f); //            ^ Magic number for tweaking look time
@@ -281,99 +305,76 @@ public class jumpMotor : MonoBehaviour {
 			moveDirection += transform.TransformDirection(Vector3.up);
 			moveDirection.Normalize();
 			moveDirection *= BaseSpeed;
-			climbing = true;
-			motorState = MotorState.Climbing;
+
+			motorState = MotorStates.Climbing;
 		}
 		else {
-			if (climbing || motorState == MotorState.Climbing)
+			if (motorState == MotorStates.Climbing)
 				canClimb = false;
 			climbTime = 0f;
-			climbing = false;
-			motorState = MotorState.Default;
+			motorState = MotorStates.Default;
 		}
 	}
 
+	RaycastHit DoWallClimbCheck(Ray forwardRay){
+		RaycastHit hit;
+
+		Physics.Raycast(forwardRay.origin, forwardRay.direction, out hit, 1f);
+
+		return hit;
+	}
+
+	// Activates ledge grab
+	// TODO: Requires user to be jumping or climbing, should allow for falling as well.
 	void LedgeGrab(){
-		Debug.Log("Grab ledge");
-		if (canGrabLedge && isJumping && !wallRunning) {
-			grabbingLedge = true;
-			motorState = MotorState.Ledgegrabbing;
-			isJumping = false;
+		if (canGrabLedge && 
+		    (motorState == MotorStates.Jumping || motorState == MotorStates.Climbing) && 
+		    Physics.Raycast(transform.position, transform.TransformDirection(Vector3.forward).normalized, 1f)) {
+			motorState = MotorStates.Ledgegrabbing;
 		}
 	}
 
 	void UpdateLedgeGrab(){
-		float lookDegrees = (Input.GetAxis("Mouse X") * MouseSensitivity) * TurnSpeed * Time.deltaTime;
-		transform.Rotate (0f, lookDegrees, 0f);
-		//Debug.Log(Vector3.Angle(transform.TransformDirection(Vector3.forward), );
-		cameraRotX -= Input.GetAxis("Mouse Y") * MouseSensitivity;
-		
-		camera.transform.forward = transform.forward;
-		camera.transform.Rotate(cameraRotX, 0f, 0f);
+		// Need to make a non-standard update to limit how people can look around while hanging.
+		StandardCameraUpdate();
 
 		if (moveDirection.y != 0){
 			moveDirection.y -= friction * Time.deltaTime;
 			moveDirection.y = Mathf.Clamp(moveDirection.y, 0, 100);
-			Debug.Log("Move direction: " + moveDirection.y);
-			collisions = controller.Move(moveDirection * Time.deltaTime);
 		}
 
-
-
 		if (Input.GetKey(KeyCode.LeftShift) ||  Input.GetKey(KeyCode.RightShift)){
-			grabbingLedge = false;
 			canGrabLedge = false;
-			climbing = false;
-			motorState = MotorState.Falling;
+			motorState = MotorStates.Default;
 			climbTime = 0f;
 		}
 
 		if (Input.GetButton("Jump")){
 			// Muscle up
-			musclingUp = true;
-			motorState = MotorState.MusclingUp;
-			climbing = false;
-			grabbingLedge = false;
+			motorState = MotorStates.MusclingUp;
+			climbTime = 0f;
 		}
 	}
 
-	bool musclingUp = false;
 	void MuscleUp(){
 
 		Ray ray = new Ray(transform.position, transform.TransformDirection(Vector3.forward));
+		ray.direction.Normalize();
 		ray.origin = ray.origin - new Vector3(0f, 1f, 0f);
 
-		if (Physics.Raycast(ray)){
-			//Debug.Log("TEDIOUS TRUeNESS!");
+		if (Physics.Raycast(ray.origin, ray.direction, 1f)){
 			moveDirection = transform.TransformDirection(Vector3.up + Vector3.forward);
 			moveDirection.Normalize();
 			moveDirection *= BaseSpeed;
-
-			collisions = controller.Move(moveDirection * Time.deltaTime);
-
 		}
-		else 
-			musclingUp = false;
-
-	}
-
-	void OnControllerColliderHit(ControllerColliderHit hit){
-		if ((collisions & CollisionFlags.Sides) != 0) {
-			//Debug.DrawRay(hit.point, hit.normal, Color.red, 10f, false);
-			//Debug.DrawRay(transform.position, moveDirection, Color.magenta, 10f, false);
-			//wallMovement = Vector3.Cross(moveDirection, hit.normal);
-			//wallMovement = Vector3.Cross(wallMovement, hit.normal);
-			//Debug.DrawRay(transform.position, wallMovement * BaseSpeed, Color.red, 4f, false);
-			//wallMovement.y = JumpSpeed;
+		else {
+			motorState = MotorStates.Default;
 		}
-		/*else {
-			wallMovement = Vector3.zero;
-		}*/
 	}
 
 }
 
-public enum MotorState {
+public enum MotorStates {
 	Climbing,
 	Default,
 	Falling,
