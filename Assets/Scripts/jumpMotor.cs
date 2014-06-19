@@ -44,6 +44,7 @@ public class jumpMotor : MonoBehaviour {
 	float climbTime = 0.0f;
 	bool canClimb = true;
 
+
 	// Use this for initialization
 	void Start () {
 		camera = Camera.main;
@@ -85,8 +86,9 @@ public class jumpMotor : MonoBehaviour {
 	void StandardCameraUpdate(){
 		transform.Rotate (0f, (Input.GetAxis("Mouse X") * MouseSensitivity) * TurnSpeed * Time.deltaTime, 0f);
 		cameraRotX -= Input.GetAxis("Mouse Y") * MouseSensitivity;
-		
+
 		camera.transform.forward = transform.forward;
+
 		camera.transform.Rotate(cameraRotX, 0f, 0f);
 	}
 
@@ -118,7 +120,7 @@ public class jumpMotor : MonoBehaviour {
 			canGrabLedge = true;
 
 			// Update move direction with standard forward, back, and strafe controls.
-			moveDirection = new Vector3(Input.GetAxisRaw("Horizontal"), 0, Input.GetAxisRaw("Vertical"));
+			moveDirection = new Vector3(Input.GetAxisRaw("Horizontal"), 0f, Input.GetAxisRaw("Vertical"));
 			moveDirection = transform.TransformDirection(moveDirection);
 			moveDirection.Normalize();
 			
@@ -127,31 +129,11 @@ public class jumpMotor : MonoBehaviour {
 			// slow to a stop if no input
 			if ((moveDirection == Vector3.zero && lastDirection != Vector3.zero)) {
 				if (lastDirection.x != 0){
-					if (lastDirection.x > 0){
-						lastDirection.x -= friction * Time.deltaTime;
-						if (lastDirection.x < 0)
-							lastDirection.x = 0;
-					}
-					else{
-						lastDirection.x += friction * Time.deltaTime;
-						if (lastDirection.x > 0)
-							lastDirection.x = 0;
-					}
-					moveDirection.x = lastDirection.x;
+					moveDirection.x = DoSlowDown(lastDirection.x);
 				}
 				
 				if (lastDirection.z != 0){
-					if (lastDirection.z > 0){
-						lastDirection.z -= friction * Time.deltaTime;
-						if (lastDirection.z < 0)
-							lastDirection.z = 0;
-					}
-					else{
-						lastDirection.z += friction * Time.deltaTime;
-						if (lastDirection.z > 0)
-							lastDirection.z = 0;
-					}
-					moveDirection.z = lastDirection.z;
+					moveDirection.z = DoSlowDown(lastDirection.z);
 				}
 			}
 
@@ -164,6 +146,20 @@ public class jumpMotor : MonoBehaviour {
 
 		// Keeping this here right now in case I don't feel the need for a falling function.
 		moveDirection.y -= Gravity * Time.deltaTime;
+	}
+
+	float DoSlowDown(float lastVelocity){
+		if (lastVelocity > 0){
+			lastVelocity -= friction * Time.deltaTime;
+			if (lastVelocity < 0)
+				lastVelocity = 0;
+		}
+		else{
+			lastVelocity += friction * Time.deltaTime;
+			if (lastVelocity > 0)
+				lastVelocity = 0;
+		}
+		return lastVelocity;
 	}
 
 	// UpdateJump updates the gravity, but more importantly it checks if the player is able to do specific,
@@ -213,8 +209,9 @@ public class jumpMotor : MonoBehaviour {
 			Vector3 crossProduct = Vector3.Cross(Vector3.up, wallHit.normal);
 
 			Quaternion lookDirection = Quaternion.LookRotation(crossProduct);
-
 			transform.rotation = Quaternion.Slerp(transform.rotation, lookDirection, 3.5f * Time.deltaTime);
+
+			//camera.transform.Rotate(new Vector3(0f,0f,20f * Time.deltaTime));
 
 			moveDirection = crossProduct;
 			moveDirection.Normalize();
